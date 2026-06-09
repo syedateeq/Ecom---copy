@@ -29,14 +29,62 @@ const upload = multer({
 });
 
 // Initialize database (creates tables on first run)
-require('./db');
+const db = require('./db');
+
+// ─── Auto-seed if DB is empty ─────────────────────────────────────────────────
+// Render uses an ephemeral filesystem: the SQLite file is wiped on every
+// redeploy / dyno restart. We seed automatically on startup when the tables
+// are empty so the app always has data without requiring a manual seed step.
+(async () => {
+  try {
+    const productCount = db.prepare('SELECT COUNT(*) as cnt FROM products').get();
+    if (productCount.cnt === 0) {
+      console.log('📦 Database is empty — running auto-seed...');
+      // Dynamically require to avoid circular dependency issues
+      const { autoSeed } = require('./seed');
+      await autoSeed();
+    } else {
+      console.log(`📦 Database has ${productCount.cnt} products — skipping seed`);
+    }
+  } catch (err) {
+    console.error('Auto-seed check failed:', err.message);
+  }
+})();
 
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://ecom-copy-t9mb.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    /\.vercel\.app$/, // allow any vercel preview deployments
+  ],
+  credentials: true,
+}));
 app.use(express.json());
 app.use('/uploads', express.static(uploadsDir));
+
+// Health check + DB status (useful for debugging on Render)
+app.get('/api/health', (req, res) => {
+  try {
+    const products = db.prepare('SELECT COUNT(*) as cnt FROM products').get();
+    const online = db.prepare('SELECT COUNT(*) as cnt FROM online_prices').get();
+    const retailers = db.prepare('SELECT COUNT(*) as cnt FROM retailers').get();
+    res.json({
+      status: 'ok',
+      db: {
+        products: products.cnt,
+        onlinePrices: online.cnt,
+        retailers: retailers.cnt,
+      },
+      seeded: products.cnt > 0,
+    });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));

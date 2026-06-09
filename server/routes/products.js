@@ -502,121 +502,9 @@ router.post('/url-search', async (req, res) => {
   }
 });
 
-// GET /api/products/store/:shopId/product/:productId — Visit Store detail page
-router.get('/store/:shopId/product/:productId', (req, res) => {
-  try {
-    const { shopId, productId } = req.params;
-    const userLat = parseFloat(req.query.lat) || 17.385;
-    const userLng = parseFloat(req.query.lng) || 78.4867;
-
-    // Fetch product
-    const product = db.prepare('SELECT * FROM products WHERE id = ? AND retailer_id = ?').get(productId, shopId);
-    if (!product) return res.status(404).json({ message: 'Product not found in this store' });
-
-    // Fetch full retailer/shop details
-    const shop = db.prepare('SELECT * FROM retailers WHERE id = ?').get(shopId);
-    if (!shop) return res.status(404).json({ message: 'Store not found' });
-
-    // Calculate distance
-    const distance = getDistance(userLat, userLng, shop.lat || 17.385, shop.lng || 78.4867);
-
-    res.json({
-      product: {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        image: product.image,
-        price: product.price,
-        mrp: product.mrp,
-        discount: product.discount,
-        stock: product.stock,
-        category: product.category,
-        barcode: product.barcode,
-        availability: product.availability
-      },
-      shop: {
-        id: shop.id,
-        shopName: shop.shop_name,
-        shopkeeperName: shop.name,
-        phone: shop.phone,
-        whatsapp: shop.whatsapp || shop.phone,
-        email: shop.email,
-        shopAddress: shop.shop_address,
-        lat: shop.lat,
-        lng: shop.lng,
-        rating: shop.rating,
-        category: shop.category,
-        timings: shop.timings || '9:00 AM - 9:00 PM',
-        distance: Math.round(distance * 10) / 10
-      }
-    });
-  } catch (err) {
-    console.error('Store product detail error:', err);
-    res.status(500).json({ message: 'Server error', error: err.message });
-  }
-});
-
-// GET /api/products/:id — Get a specific offline product detail
-router.get('/:id', (req, res) => {
-  try {
-    const product = db.prepare(`
-      SELECT p.*, r.shop_name, r.shop_address, r.rating as shop_rating, r.phone as shop_phone, r.lat as r_lat, r.lng as r_lng, r.id as retailer_id
-      FROM products p
-      JOIN retailers r ON p.retailer_id = r.id
-      WHERE p.id = ?
-    `).get(req.params.id);
-
-    if (!product) return res.status(404).json({ message: 'Product not found' });
-
-    // Get online prices for similar products
-    const nameWords = product.name.split(' ').slice(0, 2);
-    const onlinePrices = db.prepare(`
-      SELECT * FROM online_prices 
-      WHERE ${nameWords.map(() => 'product_name LIKE ?').join(' OR ')}
-    `).all(...nameWords.map(w => `%${w}%`));
-
-    // Format response to match what frontend expects
-    const formattedProduct = {
-      _id: product.id,
-      name: product.name,
-      description: product.description,
-      category: product.category,
-      image: product.image,
-      price: product.price,
-      mrp: product.mrp,
-      discount: product.discount,
-      stock: product.stock,
-      availability: product.availability,
-      retailerId: {
-        _id: product.retailer_id,
-        shopName: product.shop_name,
-        shopAddress: product.shop_address,
-        rating: product.shop_rating,
-        phone: product.shop_phone
-      }
-    };
-
-    const formattedOnline = onlinePrices.map(p => ({
-      productName: p.product_name,
-      platform: p.platform,
-      price: p.price,
-      originalPrice: p.original_price,
-      url: p.url,
-      rating: p.rating,
-      deliveryDays: p.delivery_days,
-      image: p.image,
-      inStock: p.in_stock
-    }));
-
-    res.json({ product: formattedProduct, onlinePrices: formattedOnline });
-  } catch (err) {
-    console.error('Product detail error:', err);
-    res.status(500).json({ message: 'Server error', error: err.message });
-  }
-});
-
 // GET /api/products/nearby-shops?lat=17.385&lng=78.4867&radius=15
 // Returns all shops with their products, distance, and stock summary
+// NOTE: This must be registered BEFORE /:id to avoid route shadowing
 router.get('/nearby-shops', (req, res) => {
   try {
     const userLat = parseFloat(req.query.lat) || 17.385;
@@ -686,6 +574,120 @@ router.get('/nearby-shops', (req, res) => {
     });
   } catch (err) {
     console.error('Nearby shops error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
+// GET /api/products/store/:shopId/product/:productId — Visit Store detail page
+router.get('/store/:shopId/product/:productId', (req, res) => {
+  try {
+    const { shopId, productId } = req.params;
+    const userLat = parseFloat(req.query.lat) || 17.385;
+    const userLng = parseFloat(req.query.lng) || 78.4867;
+
+    // Fetch product
+    const product = db.prepare('SELECT * FROM products WHERE id = ? AND retailer_id = ?').get(productId, shopId);
+    if (!product) return res.status(404).json({ message: 'Product not found in this store' });
+
+    // Fetch full retailer/shop details
+    const shop = db.prepare('SELECT * FROM retailers WHERE id = ?').get(shopId);
+    if (!shop) return res.status(404).json({ message: 'Store not found' });
+
+    // Calculate distance
+    const distance = getDistance(userLat, userLng, shop.lat || 17.385, shop.lng || 78.4867);
+
+    res.json({
+      product: {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        image: product.image,
+        price: product.price,
+        mrp: product.mrp,
+        discount: product.discount,
+        stock: product.stock,
+        category: product.category,
+        barcode: product.barcode,
+        availability: product.availability
+      },
+      shop: {
+        id: shop.id,
+        shopName: shop.shop_name,
+        shopkeeperName: shop.name,
+        phone: shop.phone,
+        whatsapp: shop.whatsapp || shop.phone,
+        email: shop.email,
+        shopAddress: shop.shop_address,
+        lat: shop.lat,
+        lng: shop.lng,
+        rating: shop.rating,
+        category: shop.category,
+        timings: shop.timings || '9:00 AM - 9:00 PM',
+        distance: Math.round(distance * 10) / 10
+      }
+    });
+  } catch (err) {
+    console.error('Store product detail error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
+// GET /api/products/:id — Get a specific offline product detail
+// NOTE: This wildcard route must always be LAST in this file
+router.get('/:id', (req, res) => {
+  try {
+    const product = db.prepare(`
+      SELECT p.*, r.shop_name, r.shop_address, r.rating as shop_rating, r.phone as shop_phone, r.lat as r_lat, r.lng as r_lng, r.id as retailer_id
+      FROM products p
+      JOIN retailers r ON p.retailer_id = r.id
+      WHERE p.id = ?
+    `).get(req.params.id);
+
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    // Get online prices for similar products
+    const nameWords = product.name.split(' ').slice(0, 2);
+    const onlinePrices = db.prepare(`
+      SELECT * FROM online_prices 
+      WHERE ${nameWords.map(() => 'product_name LIKE ?').join(' OR ')}
+    `).all(...nameWords.map(w => `%${w}%`));
+
+    // Format response to match what frontend expects
+    const formattedProduct = {
+      _id: product.id,
+      name: product.name,
+      description: product.description,
+      category: product.category,
+      image: product.image,
+      price: product.price,
+      mrp: product.mrp,
+      discount: product.discount,
+      stock: product.stock,
+      availability: product.availability,
+      retailerId: {
+        _id: product.retailer_id,
+        shopName: product.shop_name,
+        shopAddress: product.shop_address,
+        rating: product.shop_rating,
+        phone: product.shop_phone
+      }
+    };
+
+    const formattedOnline = onlinePrices.map(p => ({
+      productName: p.product_name,
+      platform: p.platform,
+      price: p.price,
+      originalPrice: p.original_price,
+      url: p.url,
+      rating: p.rating,
+      deliveryDays: p.delivery_days,
+      image: p.image,
+      inStock: p.in_stock
+    }));
+
+    res.json({ product: formattedProduct, onlinePrices: formattedOnline });
+  } catch (err) {
+    console.error('Product detail error:', err);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 });

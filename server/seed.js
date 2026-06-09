@@ -2,7 +2,12 @@ const bcrypt = require('bcryptjs');
 require('dotenv').config();
 const db = require('./db');
 
-async function seed() {
+/**
+ * autoSeed — Seeds the database with demo data.
+ * Called automatically from index.js on startup when the DB is empty.
+ * Also called directly via `node seed.js` for manual resets.
+ */
+async function autoSeed() {
   try {
     console.log('🌱 Seeding database...');
 
@@ -120,7 +125,13 @@ async function seed() {
 
   } catch (err) {
     console.error('❌ Seeding error:', err);
+    throw err;
   }
 }
 
-seed();
+// Allow running directly: node seed.js
+if (require.main === module) {
+  autoSeed().then(() => process.exit(0)).catch(() => process.exit(1));
+}
+
+module.exports = { autoSeed };
