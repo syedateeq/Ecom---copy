@@ -56,8 +56,15 @@ export default function Search() {
         isUrl: !!data.wasShortLink || isUrl(input),
       });
 
-      let filteredOnline = data.onlinePrices || [];
-      let filteredOffline = data.offlineProducts || [];
+      let filteredOnline =
+  data.onlinePrices ||
+  data.onlineStores ||
+  [];
+
+let filteredOffline =
+  data.offlineProducts ||
+  data.offlineStores ||
+  [];
 
       const maxBudget = budget ? parseFloat(budget) : Infinity;
 
@@ -86,7 +93,10 @@ export default function Search() {
         onlinePrices: filteredOnline,
         offlineProducts: filteredOffline,
         bestPrice,
-        totalResults: data.totalResults || filteredOnline.length + filteredOffline.length,
+        totalResults:
+	data.totalResults ||
+	data.totalStores ||
+	filteredOnline.length + filteredOffline.length,
       });
     } catch (err) {
       console.error('Search error:', err);
