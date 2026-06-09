@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://smartcart-4vp2.onrender.com/api/:path*"
+    }
+  ]
+}
