@@ -14,18 +14,15 @@ export default function Search() {
   const [sort, setSort] = useState('');
   const [budget, setBudget] = useState('');
   const [activeTab, setActiveTab] = useState('all');
-
-  // Metadata from the compare API
-  const [meta, setMeta] = useState(null); // { product, platform, resolvedUrl, isUrl }
+  const [meta, setMeta] = useState(null);
   const [error, setError] = useState('');
 
-  // Detect if input is a URL
   const isUrl = (str) => str.startsWith('http://') || str.startsWith('https://');
 
-  // Search when query changes from URL params
   useEffect(() => {
     const q = searchParams.get('q');
     const url = searchParams.get('url');
+
     if (url) {
       setQuery(url);
       doCompare(url);
@@ -35,64 +32,38 @@ export default function Search() {
     }
   }, [searchParams]);
 
-  /**
-   * Unified search — calls POST /api/compare-product for both URLs and product names
-   */
   const doCompare = async (input) => {
     setLoading(true);
     setError('');
     setMeta(null);
     setResults(null);
+
     try {
-      const { data } = await API.post('/compare-product', { query: input });
+      let data;
+
+      if (isUrl(input)) {
+        const res = await API.post('/products/url-search', { url: input });
+        data = res.data;
+      } else {
+        const res = await API.get(`/products/search?q=${encodeURIComponent(input)}`);
+        data = res.data;
+      }
 
       setMeta({
-        product: data.product,
-        platform: data.platform,
-        resolvedUrl: data.resolvedUrl,
-        isUrl: data.isUrl,
+        product: data.query || data.extractedTitle || input,
+        platform: data.sourcePlatform || null,
+        resolvedUrl: data.sourceUrl || null,
+        isUrl: !!data.wasShortLink || isUrl(input),
       });
 
-      // Map the new API response to the shape our UI expects
-      const onlinePrices = (data.onlineStores || []).map((s, i) => ({
-        id: `online-${i}`,
-        productName: s.title,
-        platform: s.store,
-        price: s.price,
-        originalPrice: s.originalPrice || s.price,
-        url: s.link || '#',
-        rating: s.rating || 4.0,
-        deliveryDays: null,
-        image: s.image || '',
-        inStock: 1,
-        type: 'online',
-      }));
+      let filteredOnline = data.onlinePrices || [];
+      let filteredOffline = data.offlineProducts || [];
 
-      const offlineProducts = (data.offlineStores || []).map((s, i) => ({
-        _id: s.productId || `offline-${i}`,
-        name: s.title,
-        price: s.price,
-        mrp: s.originalPrice || s.price,
-        discount: s.discount || 0,
-        stock: s.stock ?? 1,
-        image: s.image || '',
-        shopName: s.store,
-        shopAddress: s.shopAddress || '',
-        rating: s.rating || 4.0,
-        shopRating: s.rating || 4.0,
-        distance: s.distance || 0,
-        retailerId: s.retailerId,
-        type: 'offline',
-      }));
-
-      // Apply client-side filters
-      let filteredOnline = onlinePrices;
-      let filteredOffline = offlineProducts;
       const maxBudget = budget ? parseFloat(budget) : Infinity;
 
       if (maxBudget !== Infinity) {
-        filteredOnline = filteredOnline.filter(p => p.price <= maxBudget);
-        filteredOffline = filteredOffline.filter(p => p.price <= maxBudget);
+        filteredOnline = filteredOnline.filter((p) => p.price <= maxBudget);
+        filteredOffline = filteredOffline.filter((p) => p.price <= maxBudget);
       }
 
       if (sort === 'price') {
@@ -105,15 +76,21 @@ export default function Search() {
         filteredOffline.sort((a, b) => (a.distance || 0) - (b.distance || 0));
       }
 
+      const bestPrice =
+        data.recommendations?.bestOverallValue ||
+        data.recommendations?.cheapestOnline ||
+        data.recommendations?.bestNearbyShop ||
+        null;
+
       setResults({
         onlinePrices: filteredOnline,
         offlineProducts: filteredOffline,
-        bestPrice: data.bestPrice,
-        totalResults: (data.onlineStores?.length || 0) + (data.offlineStores?.length || 0),
+        bestPrice,
+        totalResults: data.totalResults || filteredOnline.length + filteredOffline.length,
       });
     } catch (err) {
-      console.error('Compare error:', err);
-      const message = err.response?.data?.message || 'Unable to compare prices. Please try again.';
+      console.error('Search error:', err);
+      const message = err.response?.data?.message || 'Unable to search products. Please try again.';
       setError(message);
     } finally {
       setLoading(false);
@@ -124,6 +101,7 @@ export default function Search() {
     e.preventDefault();
     const trimmed = query.trim();
     if (!trimmed) return;
+
     if (isUrl(trimmed)) {
       navigate(`/search?url=${encodeURIComponent(trimmed)}`);
     } else {
@@ -135,7 +113,6 @@ export default function Search() {
   const filteredOffline = results?.offlineProducts || [];
   const bestPrice = results?.bestPrice || null;
 
-  // Platform badge colors
   const platformColors = {
     Amazon: { bg: 'rgba(255,153,0,0.12)', border: 'rgba(255,153,0,0.3)', text: '#FF9900' },
     Flipkart: { bg: 'rgba(47,128,237,0.12)', border: 'rgba(47,128,237,0.3)', text: '#2F80ED' },
@@ -143,7 +120,6 @@ export default function Search() {
 
   return (
     <div className="min-h-screen py-8 px-4 max-w-7xl mx-auto">
-      {/* Search Header */}
       <form onSubmit={handleSearch} className="mb-8 animate-fade-in-up">
         <div className="flex items-center glass-card !rounded-2xl overflow-hidden">
           <HiSearch className="text-xl text-muted ml-5" />
@@ -160,7 +136,6 @@ export default function Search() {
         </div>
       </form>
 
-      {/* URL Search Banner */}
       {meta?.isUrl && meta?.platform && !loading && (
         <div className="glass-card p-4 mb-6 animate-fade-in-up" style={{ borderColor: platformColors[meta.platform]?.border || 'rgba(108,60,225,0.3)' }}>
           <div className="flex items-center gap-3 flex-wrap">
@@ -196,7 +171,6 @@ export default function Search() {
         </div>
       )}
 
-      {/* Error Banner */}
       {error && !loading && (
         <div className="glass-card p-5 mb-6 animate-fade-in-up" style={{ borderColor: 'rgba(255,77,106,0.3)' }}>
           <div className="flex items-center gap-3">
@@ -206,14 +180,13 @@ export default function Search() {
             <div>
               <p className="text-danger text-sm font-medium">{error}</p>
               <p className="text-xs text-muted mt-1">
-                Try pasting a direct product page URL from Amazon or Flipkart, or search by product name instead.
+                Try searching by product name like iPhone 15, laptop, or headphones.
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Best Price Banner */}
       {bestPrice && !loading && (
         <div className="glass-card p-5 mb-6 animate-fade-in-up" style={{ borderColor: 'rgba(0,200,83,0.3)', background: 'rgba(0,200,83,0.05)' }}>
           <div className="flex items-center gap-4">
@@ -225,13 +198,7 @@ export default function Search() {
               <p className="text-lg font-bold text-text">
                 ₹{bestPrice.price?.toLocaleString()}
                 <span className="text-sm font-normal text-muted ml-2">
-                  at <span className="font-semibold text-primary-light">{bestPrice.store}</span>
-                </span>
-                <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium" style={{
-                  background: bestPrice.storeType === 'online' ? 'rgba(108,60,225,0.12)' : 'rgba(0,200,83,0.12)',
-                  color: bestPrice.storeType === 'online' ? '#8B5CF6' : '#00C853',
-                }}>
-                  {bestPrice.storeType === 'online' ? '🌐 Online' : '🏪 Offline'}
+                  at <span className="font-semibold text-primary-light">{bestPrice.platform || bestPrice.shopName || bestPrice.store}</span>
                 </span>
               </p>
             </div>
@@ -239,7 +206,6 @@ export default function Search() {
         </div>
       )}
 
-      {/* Filters Row */}
       {!error && (
         <div className="flex flex-wrap items-center gap-3 mb-6 animate-fade-in-up stagger-1">
           <div className="flex items-center gap-2">
@@ -248,7 +214,7 @@ export default function Search() {
             <input
               type="number"
               value={budget}
-              onChange={e => setBudget(e.target.value)}
+              onChange={(e) => setBudget(e.target.value)}
               placeholder="Max ₹"
               className="input-field !w-32 !py-2 text-sm"
             />
@@ -256,7 +222,7 @@ export default function Search() {
 
           <div className="flex items-center gap-2">
             <HiSortDescending className="text-muted" />
-            <select value={sort} onChange={e => setSort(e.target.value)}
+            <select value={sort} onChange={(e) => setSort(e.target.value)}
               className="input-field !w-36 !py-2 text-sm cursor-pointer">
               <option value="">Sort By</option>
               <option value="price">Price: Low to High</option>
@@ -280,13 +246,12 @@ export default function Search() {
         </div>
       )}
 
-      {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-card rounded-xl p-1 w-fit">
         {[
           { key: 'all', label: `All (${filteredOnline.length + filteredOffline.length})` },
           { key: 'online', label: `Online (${filteredOnline.length})` },
           { key: 'offline', label: `Nearby Shops (${filteredOffline.length})` },
-        ].map(tab => (
+        ].map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
@@ -299,76 +264,67 @@ export default function Search() {
         ))}
       </div>
 
-      {/* Loading */}
       {loading && (
         <div className="text-center py-20">
           <div className="inline-block w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
           <p className="text-muted mt-4">
-            Fetching real-time prices from Amazon, Flipkart, Google Shopping & nearby shops…
+            Searching products and nearby shops…
           </p>
-          <p className="text-xs text-muted mt-2">This may take a few seconds</p>
         </div>
       )}
 
-      {/* No Results */}
       {results && !loading && filteredOnline.length === 0 && filteredOffline.length === 0 && !error && (
         <div className="text-center py-20">
           <HiShoppingBag className="text-6xl text-muted mx-auto mb-4" />
           <h3 className="text-xl font-semibold text-text mb-2">No products found</h3>
           <p className="text-muted">
-            {meta?.product
-              ? `No matching products found for "${meta.product}". Try searching with a different product name.`
-              : 'Try searching for "iPhone 15", "laptop", or "headphones"'}
+            Try searching for "iPhone 15", "laptop", "Samsung", "Nike", or "boAt".
           </p>
         </div>
       )}
 
-      {/* Results Grid */}
       {!loading && results && (
         <>
           <div className="space-y-8">
-          {/* Online Prices */}
-          {(activeTab === 'all' || activeTab === 'online') && filteredOnline.length > 0 && (
-            <div>
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                🌐 Online Prices <span className="text-sm text-muted font-normal">({filteredOnline.length} results — real-time data)</span>
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {filteredOnline.map((product, i) => (
-                  <div key={product.id || i} className="animate-fade-in-up" style={{ animationDelay: `${i * 0.05}s` }}>
-                    <ProductCard
-                      product={product}
-                      type="online"
-                      recommendation={bestPrice && bestPrice.storeType === 'online' && bestPrice.store === product.platform && bestPrice.price === product.price ? 'Cheapest Online' : null}
-                    />
-                  </div>
-                ))}
+            {(activeTab === 'all' || activeTab === 'online') && filteredOnline.length > 0 && (
+              <div>
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  🌐 Online Prices <span className="text-sm text-muted font-normal">({filteredOnline.length} results)</span>
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {filteredOnline.map((product, i) => (
+                    <div key={product.id || i} className="animate-fade-in-up" style={{ animationDelay: `${i * 0.05}s` }}>
+                      <ProductCard
+                        product={product}
+                        type="online"
+                        recommendation={bestPrice && bestPrice.type === 'online' && bestPrice.price === product.price ? 'Cheapest Online' : null}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Offline / Nearby Shops */}
-          {(activeTab === 'all' || activeTab === 'offline') && filteredOffline.length > 0 && (
-            <div>
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                🏪 Nearby Shops <span className="text-sm text-muted font-normal">({filteredOffline.length} results)</span>
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {filteredOffline.map((product, i) => (
-                  <div key={product._id || i} className="animate-fade-in-up" style={{ animationDelay: `${i * 0.05}s` }}>
-                    <ProductCard
-                      product={product}
-                      type="offline"
-                      recommendation={bestPrice && bestPrice.storeType === 'offline' && bestPrice.store === product.shopName && bestPrice.price === product.price ? 'Best Nearby Shop' : null}
-                    />
-                  </div>
-                ))}
+            {(activeTab === 'all' || activeTab === 'offline') && filteredOffline.length > 0 && (
+              <div>
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  🏪 Nearby Shops <span className="text-sm text-muted font-normal">({filteredOffline.length} results)</span>
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {filteredOffline.map((product, i) => (
+                    <div key={product._id || i} className="animate-fade-in-up" style={{ animationDelay: `${i * 0.05}s` }}>
+                      <ProductCard
+                        product={product}
+                        type="offline"
+                        recommendation={bestPrice && bestPrice.type === 'offline' && bestPrice.price === product.price ? 'Best Nearby Shop' : null}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
           </div>
 
-          {/* Nearby Stores Discovery (Google Maps Integration) */}
           {(meta?.product || searchParams.get('q')) && (
             <NearbyStoresFinder keyword={meta?.product || searchParams.get('q')} />
           )}
